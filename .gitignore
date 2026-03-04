@@ -1,0 +1,8 @@
+.env
+__pycache__/
+vector_db/
+chroma_ephemeral_*
+.DS_Store
+*.pyc
+*.pyo
+*.pyd

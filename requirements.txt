@@ -1,0 +1,17 @@
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langchain-chroma
+langchain-text-splitters
+pydantic>=2,<3
+openai
+gradio
+beautifulsoup4
+chromadb==0.5.3
+python-dotenv
+requests
+pillow
+jsonlines
+pymupdf
+pytrends
