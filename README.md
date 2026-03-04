@@ -26,7 +26,6 @@
 ### 1. 패키지 설치
 Python 3.10 이상 환경을 권장합니다.
 ```bash
-cd trendpilot
 pip install -r requirements.txt
 ```
 
