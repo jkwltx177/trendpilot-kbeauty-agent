@@ -14,7 +14,7 @@ def get_local_context(queries: list, target_country: str) -> list:
     if not os.path.exists(CHROMA_LOCAL_DIR) or not os.listdir(CHROMA_LOCAL_DIR):
         print("[Local RAG] 로컬 DB를 찾을 수 없습니다. (build_local_kb.py 실행 필요)")
         return [Document(
-            page_content="[Local KB 시스템 메시지] 현재 구축된 로컬 규제/통계 DB가 없습니다. 일반적인 지식으로 대안을 제시하세요.",
+            page_content="[Local KB 시스템 메시지] 현재 구축된 로컬 규제/통계 무역 DB가 없습니다. 일반적인 지식으로 대안을 제시하세요.",
             metadata={"source_type": "system"}
         )]
         
@@ -23,9 +23,9 @@ def get_local_context(queries: list, target_country: str) -> list:
         client = PersistentClient(path=CHROMA_LOCAL_DIR, settings=Settings(anonymized_telemetry=False))
         db = LCChroma(client=client, collection_name="local_kb", embedding_function=embedding)
         
-        # 국가 영문명 매핑 (단순 예시)
-        country_en_map = {"일본": "Japan", "미국": "USA", "한국": "Korea", "유럽": "EU"}
-        target_country_en = country_en_map.get(target_country, target_country)
+        # 국가명 키워드 확장 (예: 미국 -> USA, US, United States)
+        country_aliases = {"일본": ["Japan", "JP"], "미국": ["USA", "US", "United States"], "한국": ["Korea", "KR", "Rep. of Korea"], "유럽": ["EU", "Europe"]}
+        aliases = country_aliases.get(target_country, [target_country])
         
         # MMR 검색기
         retriever = db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "fetch_k": 20})
@@ -33,20 +33,22 @@ def get_local_context(queries: list, target_country: str) -> list:
         results = []
         for q in queries:
             intent = q.get("intent", "")
-            # 쿼리에 타겟 국가 명시
-            search_text = f"{target_country} {target_country_en} " + q.get("query", "")
+            query_str = q.get("query", "")
+            search_text = f"{target_country} {aliases[0]} " + query_str
+            
+            # 통계/수출 데이터는 CSV에 영문(Trade Value, Partner 등)으로 기록되어 있으므로 
+            # 한국어 "수출 통계" 쿼리와 매칭이 안 되는 현상 방지를 위해 키워드 보강
+            if intent == "export_statistics" or "통계" in query_str or "수출" in query_str:
+                search_text += " Trade Value Export Partner Reporter"
+
             if search_text:
                 docs = retriever.invoke(search_text)
-                # intent 정보 임시 보관
                 for d in docs:
                     d.metadata['intent'] = intent
                 results.extend(docs)
                 
         # 중복 제거 및 필터링
         seen = set()
-        deduped_results = []
-        
-        # 규제(PDF)와 통계(CSV)를 골고루 담기 위한 버킷
         reg_docs = []
         stat_docs = []
 
@@ -54,22 +56,29 @@ def get_local_context(queries: list, target_country: str) -> list:
             content = doc.page_content
             source_file = doc.metadata.get('source_file', '')
             
-            # 타겟 국가 이름(한글/영문)이 문서 내용이나 파일명에 포함되어 있는지 확인
-            if target_country in content or target_country_en in content or target_country_en in source_file or target_country in source_file:
+            # 타겟 국가 키워드가 포함되어 있는지 확인
+            is_match = target_country in content or target_country in source_file
+            if not is_match:
+                for alias in aliases:
+                    if alias.lower() in content.lower() or alias.lower() in source_file.lower():
+                        is_match = True
+                        break
+            
+            # CSV(통계)는 데이터 형식이 파편화되어 있을 수 있어 쿼리 매칭만으로도 통과
+            if is_match or ".csv" in source_file.lower():
                  if content not in seen:
                     seen.add(content)
                     doc.page_content = f"[Local KB - {source_file}] {content}"
                     
-                    # 분리 저장
                     if ".csv" in source_file.lower():
                         stat_docs.append(doc)
                     else:
                         reg_docs.append(doc)
                         
-        # 규제(최대 3개) + 통계(최대 3개) 조합하여 반환
+        # 규제(PDF)와 통계(CSV)를 적절히 조합 (각 최대 3개)
         final_docs = reg_docs[:3] + stat_docs[:3]
         
-        # 만약 필터링 후 결과가 너무 적으면 fallback
+        # 필터링 후 너무 적으면 안전장치로 추가 반환
         if len(final_docs) < 2:
              for doc in results:
                 content = doc.page_content
@@ -84,3 +93,4 @@ def get_local_context(queries: list, target_country: str) -> list:
     except Exception as e:
         print(f"[Local RAG Error]: {e}")
         return []
+

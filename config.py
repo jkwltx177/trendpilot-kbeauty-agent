@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import sys
 import types
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Chroma DB Paths
 CHROMA_LOCAL_DIR = os.path.join(os.path.dirname(__file__), "vector_db", "local_kb")
